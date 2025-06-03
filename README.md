@@ -6,8 +6,8 @@ An intelligent document analysis tool that uses OpenAI's GPT-4 to analyze PDF do
 
 - 📄 PDF text extraction and analysis
 - 🤖 AI-powered question answering
-- 📊 Dynamic table generation
-- 📈 Interactive charts and visualizations
+- 📊 Dynamic table generation (when requested)
+- 📈 Interactive charts and visualizations (when requested)
 - 📱 Responsive web interface
 - 🔒 Secure API key management
 
@@ -36,13 +36,15 @@ pip install -r requirements.txt
 ```
 
 4. Set up environment variables:
-   - Copy `.env.example` to `.env`
-   - Add your OpenAI API key to the `.env` file:
+   - Create a `.env` file in the project root
+   - Add your OpenAI API key:
 ```bash
 OPENAI_API_KEY=your_openai_api_key_here
+PDF_FILE_PATH=MonthlyAttendanceReport (1).pdf
+FLASK_DEBUG=False
 ```
 
-5. Place your PDF file in the project directory or update the `PDF_FILE_PATH` in `.env`
+5. Place your PDF file in the project directory
 
 ## Usage
 
@@ -60,61 +62,27 @@ python app.py
 
 ## Environment Variables
 
-Create a `.env` file with the following variables:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | Your OpenAI API key | Required |
+| `PDF_FILE_PATH` | Path to your PDF file | `MonthlyAttendanceReport (1).pdf` |
+| `FLASK_DEBUG` | Enable debug mode | `False` |
+| `PORT` | Server port | `5000` |
+| `HOST` | Server host | `127.0.0.1` |
 
-```bash
-OPENAI_API_KEY=your_openai_api_key_here
-PDF_FILE_PATH=your_pdf_file.pdf
-FLASK_DEBUG=False
-PORT=5000
-HOST=127.0.0.1
-```
+## Security Notes
 
-## API Endpoints
-
-- `GET /` - Main interface
-- `POST /chat` - Chat with the document
-- `GET /extract` - Extract PDF content
-- `POST /test-openai` - Test API connection
-- `GET /check-dependencies` - Check system dependencies
-
-## Deployment
-
-### Heroku
-
-1. Create a Heroku app
-2. Set environment variables in Heroku dashboard
-3. Deploy using Git:
-
-```bash
-git push heroku main
-```
-
-### Docker
-
-```bash
-docker build -t edoc-analyzer .
-docker run -p 5000:5000 --env-file .env edoc-analyzer
-```
+- Never commit your `.env` file
+- Keep your OpenAI API key secure
+- The application only generates structured components when explicitly requested
 
 ## Contributing
 
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
-
-## Security
-
-- Never commit API keys or sensitive data
-- Use environment variables for all configuration
-- Follow the `.gitignore` patterns
+4. Submit a pull request
 
 ## License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Support
-
-If you encounter any issues, please create an issue on GitHub or contact [your-email@example.com].
+This project is licensed under the MIT License.

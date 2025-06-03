@@ -669,7 +669,7 @@ def test_openai():
             }), 500
         
         response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo",  # Use a more stable model for testing
+            model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": "Say hello and confirm you're working!"}],
             max_tokens=50
         )

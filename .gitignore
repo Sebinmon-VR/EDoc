@@ -2,7 +2,7 @@
 .env
 .env.local
 .env.production
-.env.example
+
 # Python
 __pycache__/
 *.py[cod]
@@ -53,13 +53,17 @@ Thumbs.db
 *.log
 logs/
 
-# PDF files (if you don't want to commit them)
-*.pdf
+# PDF files (optional - remove if you want to include sample PDFs)
+# *.pdf
 
 # API Keys and secrets
 config.py
 secrets.json
 credentials.json
+
+# Copy files
+*copy.py
+prgmcopy.py
 
 # Flask instance folder
 instance/
