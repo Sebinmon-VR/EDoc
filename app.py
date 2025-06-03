@@ -787,6 +787,6 @@ if __name__ == '__main__':
     # Use environment variables for Flask configuration
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     port = int(os.getenv('PORT', 5000))
-    host = os.getenv('HOST', '127.0.0.1')
+    host = os.getenv('HOST', '0.0.0.0')  # Changed to 0.0.0.0 for hosting compatibility
     
     app.run(debug=debug_mode, host=host, port=port)
