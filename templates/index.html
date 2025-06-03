@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>EDoc AI Document Analyzer</title>
+    <title>Attendance AI Analyzer</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
@@ -637,46 +637,50 @@
         <!-- Sidebar -->
         <div class="sidebar" id="sidebar">
             <div class="sidebar-header">
-                <h1>🤖 EDoc AI</h1>
-                <div class="subtitle">Document Analyzer</div>
+                <h1>📊 Attendance AI</h1>
+                <div class="subtitle">Smart Attendance Analyzer</div>
             </div>
             
             <div class="sidebar-content">
                 <div class="pdf-status" id="pdfStatus">
                     <span class="status-indicator loading"></span>
-                    Checking PDF...
+                    Loading attendance data...
                 </div>
                 
                 <div class="sidebar-section">
-                    <h3>System Tests</h3>
-                    <button class="sidebar-button" onclick="checkDependencies()">
-                        🔧 Dependencies
+                    <h3>Quick Actions</h3>
+                    <button class="sidebar-button" onclick="askQuickQuestion('What is the overall attendance summary?')">
+                        📈 Attendance Summary
                     </button>
+                    <button class="sidebar-button" onclick="askQuickQuestion('Show me employee attendance in a table')">
+                        📋 Employee Data Table
+                    </button>
+                    <button class="sidebar-button" onclick="askQuickQuestion('Create a chart of attendance statistics')">
+                        📊 Attendance Chart
+                    </button>
+                </div>
+                
+                <div class="sidebar-section">
+                    <h3>Analysis Tools</h3>
+                    <button class="sidebar-button" onclick="analyzeDocument()">
+                        🔍 Full Analysis
+                    </button>
+                    <button class="sidebar-button" onclick="askQuickQuestion('What are the key attendance insights?')">
+                        💡 Key Insights
+                    </button>
+                </div>
+                
+                <!-- Developer tools section - hidden by default -->
+                <div class="sidebar-section" id="devTools" style="display: none;">
+                    <h3>Developer Tools</h3>
                     <button class="sidebar-button" onclick="testOpenAI()">
                         🤖 API Connection
                     </button>
                     <button class="sidebar-button" onclick="testPdf()">
-                        📄 Reader
+                        📄 PDF Reader
                     </button>
-                </div>
-                
-                <div class="sidebar-section">
-                    <h3>Document Tools</h3>
-                    <button class="sidebar-button" onclick="analyzeDocument()">
-                        🔍 Full Analysis
-                    </button>
-                    <button class="sidebar-button" onclick="extractText()">
-                        📝 Extract Text
-                    </button>
-                </div>
-                
-                <div class="sidebar-section">
-                    <h3>UI Testing</h3>
                     <button class="sidebar-button" onclick="testComponents()">
                         🧪 Test Components
-                    </button>
-                    <button class="sidebar-button" onclick="simpleTest()">
-                        🧮 Simple Test
                     </button>
                 </div>
             </div>
@@ -685,12 +689,16 @@
         <!-- Main Content -->
         <div class="main-content">
             <div class="header-bar">
-                <div class="header-title">Document Chat Interface</div>
+                <div class="header-title">Attendance Data Analysis</div>
                 <div class="header-actions">
                     <span id="connectionStatus">
                         <span class="status-indicator loading"></span>
                         Initializing...
                     </span>
+                    <!-- Developer mode toggle - hidden by default -->
+                    <button id="devModeToggle" onclick="toggleDevMode()" style="display: none;" title="Toggle Developer Mode">
+                        🛠️
+                    </button>
                 </div>
             </div>
             
@@ -698,23 +706,24 @@
                 <div class="chat-messages" id="chatMessages">
                     <div class="message bot-message">
                         <div class="message-content welcome-message">
-                            <h3>Welcome to EDoc AI!</h3>
-                            <p>I can analyze your PDF document and provide intelligent responses. Ask me:</p>
+                            <h3>Welcome to Attendance AI Analyzer!</h3>
+                            <p>I can analyze your attendance data and provide intelligent insights. Ask me:</p>
                             <ul>
-                                <li><strong>What are the key findings?</strong></li>
-                                <li><strong>Show me data in a table</strong></li>
-                                <li><strong>Summarize the document</strong></li>
-                                <li><strong>Extract specific information</strong></li>
+                                <li><strong>What is the overall attendance rate?</strong></li>
+                                <li><strong>Show employee attendance data in a table</strong></li>
+                                <li><strong>Create a chart of attendance trends</strong></li>
+                                <li><strong>Which employees have perfect attendance?</strong></li>
+                                <li><strong>What are the attendance patterns?</strong></li>
                             </ul>
                             <p style="margin-top: 15px; opacity: 0.9; font-style: italic;">
-                                💡 I'll only show charts and tables when the data actually needs visualization.
+                                💡 I'll show charts and tables when you specifically request them for better data visualization.
                             </p>
                         </div>
                     </div>
                 </div>
                 
                 <div class="chat-input">
-                    <input type="text" id="messageInput" placeholder="Ask me anything about your document..." />
+                    <input type="text" id="messageInput" placeholder="Ask me about attendance data..." />
                     <button class="send-button" onclick="sendMessage()" id="sendBtn">
                         ➤
                     </button>
@@ -725,6 +734,7 @@
 
     <script>
         let chartInstances = [];
+        let devModeEnabled = false;
 
         // Core messaging functions
         function addMessage(message, isUser, components = []) {
@@ -793,7 +803,18 @@
             const pdfStatus = document.getElementById('pdfStatus');
             if (pdfStatus) {
                 const indicator = status === 'online' ? 'online' : status === 'offline' ? 'offline' : 'loading';
-                pdfStatus.innerHTML = `<span class="status-indicator ${indicator}"></span>${message}`;
+                let contextMessage = message;
+                
+                // Update messages for attendance context
+                if (message.includes('PDF Ready')) {
+                    contextMessage = 'Attendance data ready';
+                } else if (message.includes('PDF Error')) {
+                    contextMessage = 'Attendance data error';
+                } else if (message.includes('Checking PDF')) {
+                    contextMessage = 'Loading attendance data...';
+                }
+                
+                pdfStatus.innerHTML = `<span class="status-indicator ${indicator}"></span>${contextMessage}`;
             }
         }
 
@@ -1073,35 +1094,7 @@
             });
         }
 
-        // Test functions - Fixed with proper error handling
-        function checkDependencies() {
-            console.log('checkDependencies called');
-            updateConnectionStatus('loading', 'Checking...');
-            addMessage('Checking system dependencies...', false);
-            
-            fetch('/check-dependencies')
-            .then(response => response.json())
-            .then(data => {
-                let message = 'Dependency Check Results:\n\n';
-                for (const [dep, status] of Object.entries(data.dependencies || {})) {
-                    message += `${dep}: ${status}\n`;
-                }
-                message += `\nAll dependencies installed: ${data.all_installed ? 'YES' : 'NO'}`;
-                addMessage(message, false);
-                
-                if (data.all_installed) {
-                    updateConnectionStatus('online', 'Dependencies OK');
-                } else {
-                    updateConnectionStatus('offline', 'Missing Dependencies');
-                }
-            })
-            .catch(error => {
-                console.error('Dependency check error:', error);
-                addMessage('Dependency check failed: ' + error.message, false);
-                updateConnectionStatus('offline', 'Check Failed');
-            });
-        }
-
+        // Test functions - Remove dependency check
         function testOpenAI() {
             console.log('testOpenAI called');
             addMessage('Testing OpenAI API connection...', false);
@@ -1280,20 +1273,50 @@
             });
         }
 
-        // Mobile sidebar functionality
-        function toggleSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebarOverlay');
-            sidebar.classList.toggle('open');
-            overlay.classList.toggle('show');
+        // Quick question helper
+        function askQuickQuestion(question) {
+            const messageInput = document.getElementById('messageInput');
+            if (messageInput) {
+                messageInput.value = question;
+                sendMessage();
+            }
+            // Close sidebar on mobile after selection
+            if (window.innerWidth <= 768) {
+                closeSidebar();
+            }
         }
-        
-        function closeSidebar() {
-            const sidebar = document.getElementById('sidebar');
-            const overlay = document.getElementById('sidebarOverlay');
-            sidebar.classList.remove('open');
-            overlay.classList.remove('show');
+
+        // Developer mode toggle
+        function toggleDevMode() {
+            devModeEnabled = !devModeEnabled;
+            const devTools = document.getElementById('devTools');
+            const devToggle = document.getElementById('devModeToggle');
+            
+            if (devModeEnabled) {
+                devTools.style.display = 'block';
+                devToggle.textContent = '🛠️ ON';
+                devToggle.style.background = '#e74c3c';
+            } else {
+                devTools.style.display = 'none';
+                devToggle.textContent = '🛠️';
+                devToggle.style.background = '#95a5a6';
+            }
         }
+
+        // Enable dev mode with secret key combination
+        let devKeySequence = [];
+        document.addEventListener('keydown', function(e) {
+            devKeySequence.push(e.key);
+            if (devKeySequence.length > 6) {
+                devKeySequence.shift();
+            }
+            
+            // Secret sequence: Ctrl+Shift+D+E+V
+            if (e.ctrlKey && e.shiftKey && e.key === 'D') {
+                const devToggle = document.getElementById('devModeToggle');
+                devToggle.style.display = devToggle.style.display === 'none' ? 'inline-block' : 'none';
+            }
+        });
 
         // Initialize everything when DOM is ready
         document.addEventListener('DOMContentLoaded', function() {
@@ -1322,9 +1345,8 @@
             updateConnectionStatus('loading', 'Initializing...');
             updatePdfStatus('loading', 'Checking PDF...');
             
-            // Start initial checks
+            // Start initial checks (removed dependency check)
             setTimeout(() => {
-                checkDependencies();
                 getPdfInfo();
             }, 500);
         });

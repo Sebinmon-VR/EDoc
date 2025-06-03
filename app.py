@@ -533,16 +533,16 @@ def initialize_pdf():
     pdf_file = os.getenv('PDF_FILE_PATH', 'MonthlyAttendanceReport (1).pdf')
     
     if not os.path.exists(pdf_file):
-        print(f"WARNING: PDF file '{pdf_file}' not found!")
-        print("Please ensure the PDF file exists or update the PDF_FILE_PATH environment variable.")
+        print(f"WARNING: Attendance report file '{pdf_file}' not found!")
+        print("Please ensure the attendance report exists or update the PDF_FILE_PATH environment variable.")
         return
     
-    print("Initializing PDF extraction...")
+    print("Loading attendance data...")
     result = extract_pdf_content(pdf_file)
     if result.get("success"):
-        print("PDF content successfully loaded!")
+        print("Attendance data successfully loaded!")
     else:
-        print(f"Failed to load PDF: {result.get('error')}")
+        print(f"Failed to load attendance data: {result.get('error')}")
 
 @app.route('/')
 def home():
@@ -583,24 +583,6 @@ def chat():
             "error": f"Chat error: {str(e)}",
             "components": []
         }), 500
-
-# Add missing endpoints that the template expects
-@app.route('/check-dependencies', methods=['GET'])
-def check_dependencies():
-    """Check if dependencies are installed."""
-    try:
-        dependencies = {
-            'Flask': 'Installed',
-            'PyPDF2': 'Installed',
-            'openai': 'Installed'
-        }
-        
-        return jsonify({
-            'dependencies': dependencies,
-            'all_installed': True
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/test-pdf', methods=['GET'])
 def test_pdf():
@@ -741,13 +723,13 @@ def generate_sample_data():
 
 @app.route('/analyze-document', methods=['POST'])
 def analyze_document():
-    """Analyze the entire document."""
+    """Analyze the attendance document."""
     try:
         if not PDF_CONTENT:
-            return jsonify({"error": "No PDF content available"}), 400
+            return jsonify({"error": "No attendance data available"}), 400
         
-        # Use chatbot function to analyze document
-        result = chatbot_with_pdf("Provide a comprehensive analysis of this document including key statistics and data.")
+        # Use chatbot function to analyze attendance document
+        result = chatbot_with_pdf("Provide a comprehensive analysis of this attendance report including key statistics, attendance rates, and important insights.")
         
         if result.get("success"):
             return jsonify({
@@ -762,10 +744,10 @@ def analyze_document():
 
 @app.route('/extract-text', methods=['GET'])
 def extract_text():
-    """Extract and return text information."""
+    """Extract and return attendance data information."""
     try:
         if not PDF_CONTENT:
-            return jsonify({"error": "No PDF content available"}), 400
+            return jsonify({"error": "No attendance data available"}), 400
         
         # Split into chunks for analysis
         chunks = PDF_CONTENT.split('\n')
@@ -774,7 +756,8 @@ def extract_text():
         return jsonify({
             "text_length": len(PDF_CONTENT),
             "total_chunks": len(meaningful_chunks),
-            "first_500_chars": PDF_CONTENT[:500] + "..." if len(PDF_CONTENT) > 500 else PDF_CONTENT
+            "first_500_chars": PDF_CONTENT[:500] + "..." if len(PDF_CONTENT) > 500 else PDF_CONTENT,
+            "data_type": "attendance_report"
         })
         
     except Exception as e:

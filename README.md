@@ -1,22 +1,25 @@
-# EDoc AI Document Analyzer
+# Attendance AI Analyzer
 
-An intelligent document analysis tool that uses OpenAI's GPT-4 to analyze PDF documents and provide interactive responses with tables, charts, and visualizations.
+An intelligent attendance data analysis tool that uses OpenAI's GPT-4 to analyze attendance reports and provide insights with interactive tables, charts, and visualizations.
 
 ## Features
 
-- 📄 PDF text extraction and analysis
-- 🤖 AI-powered question answering
-- 📊 Dynamic table generation (when requested)
-- 📈 Interactive charts and visualizations (when requested)
+- 📊 Attendance report analysis and insights
+- 🤖 AI-powered question answering about attendance data
+- 📋 Dynamic table generation for employee data
+- 📈 Interactive charts for attendance visualization
 - 📱 Responsive web interface
 - 🔒 Secure API key management
 
-## Prerequisites
+## Use Cases
 
-- Python 3.8 or higher
-- OpenAI API key
+- Analyze monthly/weekly attendance reports
+- Generate attendance summaries and insights
+- Identify attendance patterns and trends
+- Create visual reports for management
+- Answer specific questions about employee attendance
 
-## Installation
+## Quick Start
 
 1. Clone the repository:
 ```bash
@@ -46,29 +49,33 @@ FLASK_DEBUG=False
 
 5. Place your PDF file in the project directory
 
-## Usage
-
-1. Start the application:
+6. Start the application:
 ```bash
 python app.py
 ```
 
-2. Open your browser and navigate to `http://localhost:5000`
+7. Open your browser and navigate to `http://localhost:5000`
 
-3. Use the chat interface to ask questions about your document:
+8. Use the chat interface to ask questions about your document:
    - General questions: "What is this document about?"
    - Request tables: "Show me the data in a table"
    - Request charts: "Create a chart of the attendance data"
+
+## Sample Questions
+
+- "What is the overall attendance rate?"
+- "Show me employee attendance in a table"
+- "Create a chart of attendance trends"
+- "Which employees have perfect attendance?"
+- "What are the main attendance insights?"
 
 ## Environment Variables
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `OPENAI_API_KEY` | Your OpenAI API key | Required |
-| `PDF_FILE_PATH` | Path to your PDF file | `MonthlyAttendanceReport (1).pdf` |
+| `PDF_FILE_PATH` | Path to attendance report | `MonthlyAttendanceReport (1).pdf` |
 | `FLASK_DEBUG` | Enable debug mode | `False` |
-| `PORT` | Server port | `5000` |
-| `HOST` | Server host | `127.0.0.1` |
 
 ## Security Notes
 
