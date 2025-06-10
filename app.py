@@ -1,126 +1,290 @@
 from flask import Flask, request, jsonify, render_template
-import PyPDF2
+import sqlite3
 import os
 import openai
+import re
+import bleach
 from dotenv import load_dotenv
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from werkzeug.exceptions import BadRequest
 
-# Load environment variables
-load_dotenv()
+# Load environment variables first
+load_dotenv(override=True)  # Force override existing env vars
 
 app = Flask(__name__)
 
-# Global variable to store extracted PDF content
-PDF_CONTENT = ""
+# Add rate limiting - Fixed syntax
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=["200 per day", "50 per hour"]
+)
 
-# Set OpenAI API key from environment variable
+# Global variable to store extracted database content
+DB_CONTENT = ""
+DB_INITIALIZED = False
+
+# Set OpenAI API key from environment variable AFTER loading .env
 openai.api_key = os.getenv('OPENAI_API_KEY')
+
+# Database configuration
+DATABASE_PATH = os.getenv('DATABASE_PATH', 'attendance.db')
+
+# Debug environment variables
+print(f"DEBUG: Current working directory: {os.getcwd()}")
+print(f"DEBUG: .env file exists: {os.path.exists('.env')}")
+print(f"DEBUG: OPENAI_API_KEY loaded: {'Yes' if openai.api_key else 'No'}")
+print(f"DEBUG: DATABASE_PATH: {DATABASE_PATH}")
 
 # Validate API key
 if not openai.api_key:
     print("WARNING: OPENAI_API_KEY not found in environment variables!")
     print("Please create a .env file with your API key or set the environment variable.")
+    # Try to reload environment variables
+    load_dotenv(override=True, verbose=True)
+    openai.api_key = os.getenv('OPENAI_API_KEY')
+    if openai.api_key:
+        print("SUCCESS: API key loaded after retry")
+    else:
+        print("FAILED: API key still not found after retry")
 
-def extract_pdf_content(pdf_path):
-    """Extract all text content from a PDF file."""
-    global PDF_CONTENT
+def reload_env_vars():
+    """Reload environment variables from .env file."""
+    global openai
+    try:
+        load_dotenv(override=True, verbose=True)
+        openai.api_key = os.getenv('OPENAI_API_KEY')
+        print(f"Environment variables reloaded. API key available: {'Yes' if openai.api_key else 'No'}")
+        return True
+    except Exception as e:
+        print(f"Error reloading environment variables: {e}")
+        return False
+
+def sanitize_input(text):
+    """Sanitize user input to prevent XSS and injection attacks."""
+    if not text or not isinstance(text, str):
+        return ""
+    
+    # Remove potentially dangerous characters
+    sanitized = bleach.clean(text, tags=[], attributes={}, strip=True)
+    
+    # Limit length
+    if len(sanitized) > 1000:
+        sanitized = sanitized[:1000]
+    
+    return sanitized.strip()
+
+def validate_table_name(table_name):
+    """Validate table name to prevent SQL injection."""
+    if not table_name or not isinstance(table_name, str):
+        return False
+    
+    # Only allow alphanumeric characters and underscores
+    return re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name) is not None
+
+def extract_database_content():
+    """Extract all content from the database with security improvements."""
+    global DB_CONTENT, DB_INITIALIZED
     
     try:
-        # Check if file exists
-        if not os.path.exists(pdf_path):
-            return {"error": f"PDF file not found: {pdf_path}"}
+        # Check if database exists
+        if not os.path.exists(DATABASE_PATH):
+            return {"error": f"Database file not found: {DATABASE_PATH}"}
         
-        # Open and read the PDF
-        with open(pdf_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
+        # Connect to database with read-only mode
+        conn = sqlite3.connect(f"file:{DATABASE_PATH}?mode=ro", uri=True)
+        cursor = conn.cursor()
+        
+        # Get all table names
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+        tables = cursor.fetchall()
+        
+        if not tables:
+            return {"error": "No tables found in database"}
+        
+        full_content = ""
+        table_data = {}
+        
+        for table in tables:
+            table_name = table[0]
             
-            # Get total pages
-            total_pages = len(pdf_reader.pages)
+            # Validate table name to prevent SQL injection
+            if not validate_table_name(table_name):
+                print(f"Warning: Skipping invalid table name: {table_name}")
+                continue
             
-            # Extract text from all pages
-            full_text = ""
-            page_contents = []
+            # Get table schema using parameterized query equivalent
+            cursor.execute("PRAGMA table_info([{}])".format(table_name))
+            columns = cursor.fetchall()
+            column_names = [col[1] for col in columns]
             
-            for page_num, page in enumerate(pdf_reader.pages):
-                try:
-                    page_text = page.extract_text()
-                    if page_text:
-                        page_contents.append({
-                            'page': page_num + 1,
-                            'text': page_text.strip(),
-                            'length': len(page_text.strip())
-                        })
-                        full_text += f"\n=== PAGE {page_num + 1} ===\n{page_text}\n"
-                    else:
-                        page_contents.append({
-                            'page': page_num + 1,
-                            'text': "",
-                            'length': 0,
-                            'status': "No text found"
-                        })
-                except Exception as e:
-                    page_contents.append({
-                        'page': page_num + 1,
-                        'text': "",
-                        'length': 0,
-                        'error': str(e)
-                    })
+            # Get all data from table (limit to prevent memory issues)
+            cursor.execute("SELECT * FROM [{}] LIMIT 1000".format(table_name))
+            rows = cursor.fetchall()
             
-            # Store extracted content globally
-            PDF_CONTENT = full_text
-            
-            # Print extracted content to console
-            print("\n" + "="*60)
-            print("EXTRACTED PDF CONTENT:")
-            print("="*60)
-            print(full_text)
-            print("="*60)
-            print(f"Total Pages: {total_pages}")
-            print(f"Total Characters: {len(full_text)}")
-            print("="*60 + "\n")
-            
-            return {
-                "success": True,
-                "file_path": pdf_path,
-                "total_pages": total_pages,
-                "full_text": full_text,
-                "pages": page_contents,
-                "total_characters": len(full_text)
+            # Store table data
+            table_data[table_name] = {
+                'columns': column_names,
+                'rows': rows,
+                'count': len(rows)
             }
             
+            # Create text representation
+            full_content += f"\n=== TABLE: {table_name.upper()} ===\n"
+            full_content += f"Columns: {', '.join(column_names)}\n"
+            full_content += f"Total Records: {len(rows)}\n\n"
+            
+            # Add sample data (first 10 rows)
+            for i, row in enumerate(rows[:10]):
+                row_data = dict(zip(column_names, row))
+                # Sanitize row data
+                sanitized_row = {k: str(v)[:100] if v else "" for k, v in row_data.items()}
+                full_content += f"Record {i+1}: {sanitized_row}\n"
+            
+            if len(rows) > 10:
+                full_content += f"... and {len(rows) - 10} more records\n"
+            
+            full_content += "\n" + "="*50 + "\n"
+        
+        conn.close()
+        
+        # Store extracted content globally
+        DB_CONTENT = full_content
+        DB_INITIALIZED = True
+        
+        # Don't print full content in production
+        if os.getenv('FLASK_DEBUG', 'False').lower() == 'true':
+            print("\n" + "="*60)
+            print("EXTRACTED DATABASE CONTENT:")
+            print("="*60)
+            print(full_content[:500] + "..." if len(full_content) > 500 else full_content)
+            print("="*60)
+            print(f"Total Tables: {len(tables)}")
+            print(f"Total Characters: {len(full_content)}")
+            print("="*60 + "\n")
+        
+        return {
+            "success": True,
+            "database_path": DATABASE_PATH,
+            "total_tables": len(table_data),
+            "tables": table_data,
+            "full_content": full_content,
+            "total_characters": len(full_content)
+        }
+        
     except Exception as e:
-        return {"error": f"Failed to extract PDF content: {str(e)}"}
+        print(f"Database extraction error: {str(e)}")
+        return {"error": "Failed to extract database content"}
 
-def chatbot_with_pdf(user_question):
+def chatbot_with_database(user_question, language='en'):
     """
-    Use GPT-4o to answer questions based on extracted PDF content.
-    Enhanced to provide structured responses with components only when requested.
+    Use GPT-4o to answer questions with security improvements.
     """
     try:
-        if not PDF_CONTENT:
-            return {"error": "No PDF content available. Please extract PDF first."}
+        # Sanitize user input
+        user_question = sanitize_input(user_question)
+        
+        if not user_question:
+            error_msg = "Invalid or empty question provided"
+            if language == 'ar':
+                error_msg = "تم تقديم سؤال غير صحيح أو فارغ"
+            return {"error": error_msg}
+        
+        # Check question length
+        if len(user_question) > 500:
+            error_msg = "Question too long. Please limit to 500 characters."
+            if language == 'ar':
+                error_msg = "السؤال طويل جداً. يرجى تقييده بـ 500 حرف."
+            return {"error": error_msg}
+        
+        if not DB_CONTENT or not DB_INITIALIZED:
+            # Try to initialize database
+            result = extract_database_content()
+            if not result.get("success"):
+                error_msg = "KOREV AI: Attendance database not available."
+                if language == 'ar':
+                    error_msg = "KOREV AI: قاعدة بيانات الحضور غير متوفرة."
+                return {"error": error_msg}
         
         if not openai.api_key:
-            return {"error": "OpenAI API key not configured. Please check your environment variables."}
+            error_msg = "KOREV AI: Service temporarily unavailable."
+            if language == 'ar':
+                error_msg = "KOREV AI: الخدمة غير متوفرة مؤقتاً."
+            return {"error": error_msg}
         
         # Check if user explicitly asks for structured data
         question_lower = user_question.lower()
-        wants_table = any(keyword in question_lower for keyword in ['table', 'list employees', 'show data', 'in a table'])
-        wants_chart = any(keyword in question_lower for keyword in ['chart', 'graph', 'visualize', 'pie chart', 'bar chart'])
-        wants_cards = any(keyword in question_lower for keyword in ['key metrics', 'summary cards', 'dashboard'])
+        wants_table = any(keyword in question_lower for keyword in ['table', 'list employees', 'show data', 'in a table', 'جدول', 'عرض البيانات', 'قائمة الموظفين'])
+        wants_chart = any(keyword in question_lower for keyword in ['chart', 'graph', 'visualize', 'pie chart', 'bar chart', 'رسم بياني', 'مخطط', 'تصور'])
+        wants_cards = any(keyword in question_lower for keyword in ['key metrics', 'summary cards', 'dashboard', 'مؤشرات رئيسية', 'بطاقات ملخص', 'لوحة التحكم'])
         
-        # Create prompt based on what user wants
+        # Language-specific instructions
+        language_instructions = {
+            'en': {
+                'system_role': "You are KOREV AI, an intelligent assistant for attendance management systems. You analyze attendance database content and provide insights. Only provide structured data when explicitly requested.",
+                'response_instruction': "Answer based only on the attendance information provided in the database",
+                'text_only_instruction': "Provide a clear, well-structured text response in English about attendance data",
+                'structured_instruction': "Answer the user's attendance question and provide structured data as requested in English"
+            },
+            'ar': {
+                'system_role': "أنت KOREV AI، مساعد ذكي لأنظمة إدارة الحضور. تحلل محتوى قاعدة بيانات الحضور وتقدم الرؤى. قدم البيانات المنظمة فقط عند الطلب صراحة.",
+                'response_instruction': "أجب بناءً فقط على معلومات الحضور المقدمة في قاعدة البيانات",
+                'text_only_instruction': "قدم إجابة نصية واضحة ومنظمة باللغة العربية حول بيانات الحضور",
+                'structured_instruction': "أجب على سؤال المستخدم حول الحضور وقدم البيانات المنظمة كما هو مطلوب باللغة العربية"
+            }
+        }
+        
+        lang_config = language_instructions.get(language, language_instructions['en'])
+        
+        # Create prompt based on what user wants and language
         if wants_table or wants_chart or wants_cards:
-            prompt = f"""You are an AI assistant analyzing a document. Based on the following document content, answer the user's question and provide structured data as requested.
+            if language == 'ar':
+                prompt = f"""أنت KOREV AI، مساعد ذكي متخصص في تحليل أنظمة إدارة الحضور. بناءً على محتوى قاعدة بيانات الحضور التالية، أجب على سؤال المستخدم وقدم البيانات المنظمة كما هو مطلوب.
 
-Document Content:
-{PDF_CONTENT}
+محتوى قاعدة بيانات الحضور:
+{DB_CONTENT}
+
+سؤال المستخدم: {user_question}
+
+التعليمات:
+1. أجب على سؤال المستخدم بناءً على بيانات الحضور باللغة العربية
+2. بما أن المستخدم طلب بيانات منظمة، قدمها بالتنسيق المناسب
+3. ركز على إحصائيات الحضور والاتجاهات والرؤى
+4. استخدم اللغة العربية فقط في الإجابة
+
+مهم: قدم البيانات المنظمة فقط إذا طُلبت صراحة. استخدم التنسيق التالي:
+
+للجداول:
+TABLE_DATA:
+headers: [العمود1, العمود2, العمود3]
+rows: [[بيانات1, بيانات2, بيانات3], [بيانات4, بيانات5, بيانات6]]
+
+للمخططات:
+CHART_DATA:
+type: bar|pie|line
+title: عنوان المخطط
+labels: [تسمية1, تسمية2, تسمية3]
+values: [10, 20, 30]
+
+للمؤشرات:
+CARDS_DATA:
+[{{"title": "اسم المؤشر", "value": "123", "description": "الوصف"}}]
+
+الإجابة:"""
+            else:
+                prompt = f"""You are KOREV AI, an intelligent assistant specialized in attendance management system analysis. Based on the following attendance database content, answer the user's question and provide structured data as requested.
+
+Attendance Database Content:
+{DB_CONTENT}
 
 User Question: {user_question}
 
 Instructions:
-1. Answer the user's question based on the document content
+1. Answer the user's question based on the attendance data in English
 2. Since the user asked for structured data, provide it in the appropriate format
-3. Be concise and avoid duplicating information
+3. Focus on attendance statistics, trends, and insights
+4. Be concise and avoid duplicating information
 
 IMPORTANT: Only provide structured data if explicitly requested. Format as follows:
 
@@ -143,19 +307,39 @@ CARDS_DATA:
 Answer:"""
         else:
             # Simple text-only response
-            prompt = f"""You are an AI assistant analyzing a document. Based on the following document content, answer the user's question accurately and comprehensively with a text response only.
+            if language == 'ar':
+                prompt = f"""أنت KOREV AI، مساعد ذكي متخصص في تحليل أنظمة إدارة الحضور. بناءً على محتوى قاعدة بيانات الحضور التالية، أجب على سؤال المستخدم بدقة وشمولية مع إجابة نصية فقط.
 
-Document Content:
-{PDF_CONTENT}
+محتوى قاعدة بيانات الحضور:
+{DB_CONTENT}
+
+سؤال المستخدم: {user_question}
+
+التعليمات:
+- أجب بناءً فقط على معلومات الحضور المقدمة في قاعدة البيانات
+- قدم إجابة واضحة ومنظمة باللغة العربية حول بيانات الحضور
+- اذكر التفاصيل ذات الصلة بالحضور وأشر إلى أسماء الجداول عند الضرورة
+- ركز على الإحصائيات والاتجاهات والرؤى المتعلقة بالحضور
+- لا تقدم أي تنسيقات بيانات منظمة ما لم يُطلب صراحة
+- حافظ على الإجابة تحاورية ومفيدة
+- استخدم اللغة العربية فقط
+
+الإجابة:"""
+            else:
+                prompt = f"""You are KOREV AI, an intelligent assistant specialized in attendance management system analysis. Based on the following attendance database content, answer the user's question accurately and comprehensively with a text response only.
+
+Attendance Database Content:
+{DB_CONTENT}
 
 User Question: {user_question}
 
 Instructions:
-- Answer based only on the information provided in the document
-- Provide a clear, well-structured text response
-- Include relevant details and reference page numbers when possible
+- Answer based only on the attendance information provided in the database
+- Provide a clear, well-structured text response in English about attendance data
+- Include relevant attendance details and reference table names when possible
+- Focus on attendance statistics, trends, and insights
 - Do NOT provide any structured data formats (tables, charts, etc.) unless explicitly requested
-- Keep the response conversational and informative
+- Keep the response conversational and informative about attendance management
 
 Answer:"""
         
@@ -163,11 +347,12 @@ Answer:"""
         response = openai.ChatCompletion.create(
             model="gpt-4o",
             messages=[
-                {"role": "system", "content": "You are a helpful assistant that answers questions based on document content. Only provide structured data when explicitly requested."},
+                {"role": "system", "content": lang_config['system_role']},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=1200,
-            temperature=0.1
+            max_tokens=800,  # Reduced for production
+            temperature=0.1,
+            timeout=30  # Add timeout
         )
         
         ai_response = response.choices[0].message.content.strip()
@@ -189,10 +374,16 @@ Answer:"""
                 
                 # Provide meaningful summary if text is too short
                 if len(final_text) < 20:
-                    if any(keyword in question_lower for keyword in ['employee', 'attendance']):
-                        final_text = "Here is the employee attendance data from the monthly report:"
+                    if language == 'ar':
+                        if any(keyword in question_lower for keyword in ['employee', 'attendance', 'موظف', 'حضور']):
+                            final_text = "إليك بيانات حضور الموظفين من قاعدة البيانات:"
+                        else:
+                            final_text = "إليك البيانات المطلوبة من قاعدة البيانات:"
                     else:
-                        final_text = "Here is the requested data from the document:"
+                        if any(keyword in question_lower for keyword in ['employee', 'attendance']):
+                            final_text = "Here is the employee attendance data from the database:"
+                        else:
+                            final_text = "Here is the requested data from the database:"
         else:
             # For text-only responses, don't parse for components
             final_text = ai_response
@@ -204,11 +395,27 @@ Answer:"""
             "answer": final_text,
             "components": components,
             "model": "gpt-4o",
-            "pdf_content_available": len(PDF_CONTENT) > 0
+            "language": language,
+            "system": "KOREV AI",
+            "database_content_available": len(DB_CONTENT) > 0
         }
         
+    except openai.error.RateLimitError:
+        error_msg = "KOREV AI: Rate limit exceeded. Please try again later."
+        if language == 'ar':
+            error_msg = "KOREV AI: تم تجاوز حد المعدل. يرجى المحاولة مرة أخرى لاحقاً."
+        return {"error": error_msg}
+    except openai.error.InvalidRequestError:
+        error_msg = "KOREV AI: Invalid request. Please try a different question."
+        if language == 'ar':
+            error_msg = "KOREV AI: طلب غير صحيح. يرجى تجربة سؤال مختلف."
+        return {"error": error_msg}
     except Exception as e:
-        return {"error": f"Chatbot error: {str(e)}"}
+        print(f"Chatbot error: {str(e)}")  # Log for debugging
+        error_msg = "KOREV AI: Service error. Please try again."
+        if language == 'ar':
+            error_msg = "KOREV AI: خطأ في الخدمة. يرجى المحاولة مرة أخرى."
+        return {"error": error_msg}
 
 def parse_structured_response(ai_response, user_question):
     """Parse AI response to extract text and structured components."""
@@ -526,23 +733,37 @@ def extract_cards_from_response(response):
         print(f"Error extracting cards: {e}")
         return None
 
-# Initialize PDF extraction when app starts
-def initialize_pdf():
-    """Extract PDF content when the application starts."""
-    # Default PDF file - can be made configurable via environment variable
-    pdf_file = os.getenv('PDF_FILE_PATH', 'MonthlyAttendanceReport (1).pdf')
+# Initialize database extraction when app starts
+def initialize_database():
+    """Extract database content when the application starts."""
+    global DB_INITIALIZED
     
-    if not os.path.exists(pdf_file):
-        print(f"WARNING: Attendance report file '{pdf_file}' not found!")
-        print("Please ensure the attendance report exists or update the PDF_FILE_PATH environment variable.")
-        return
+    print("Initializing attendance database...")
     
-    print("Loading attendance data...")
-    result = extract_pdf_content(pdf_file)
+    if not os.path.exists(DATABASE_PATH):
+        print(f"WARNING: Database file '{DATABASE_PATH}' not found!")
+        print("Creating sample database...")
+        # Try to create sample database
+        try:
+            # Import and create sample database
+            import setup_database
+            setup_database.create_sample_database()
+            print("Sample database created successfully!")
+        except ImportError:
+            print("ERROR: setup_database.py not found. Please create it or provide a database file.")
+            return
+        except Exception as e:
+            print(f"Failed to create sample database: {e}")
+            print("Please ensure you have a valid attendance.db file or create one manually.")
+            return
+    
+    print("Loading database content...")
+    result = extract_database_content()
     if result.get("success"):
-        print("Attendance data successfully loaded!")
+        print("Database content successfully loaded!")
+        DB_INITIALIZED = True
     else:
-        print(f"Failed to load attendance data: {result.get('error')}")
+        print(f"Failed to load database content: {result.get('error')}")
 
 @app.route('/')
 def home():
@@ -550,52 +771,71 @@ def home():
 
 @app.route('/extract')
 def extract():
-    """Extract content from default PDF file."""
-    pdf_file = 'MonthlyAttendanceReport (1).pdf'
-    result = extract_pdf_content(pdf_file)
+    """Extract content from database."""
+    result = extract_database_content()
     return jsonify(result)
 
 @app.route('/chat', methods=['POST'])
+@limiter.limit("30 per minute")  # Rate limit chat endpoint
 def chat():
-    """Enhanced chat endpoint with responsive components."""
+    """Enhanced chat endpoint with security improvements."""
     try:
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+            
         data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+            
         user_question = data.get('message', '') or data.get('question', '')
-
+        language = data.get('language', 'en')
+        
+        # Validate language parameter
+        if language not in ['en', 'ar']:
+            language = 'en'
+        
         if not user_question:
-            return jsonify({"error": "No question provided"}), 400
+            error_msg = "No question provided"
+            if language == 'ar':
+                error_msg = "لم يتم تقديم سؤال"
+            return jsonify({"error": error_msg}), 400
 
-        result = chatbot_with_pdf(user_question)
+        result = chatbot_with_database(user_question, language)
         if result.get("success"):
             return jsonify({
                 "response": result["answer"],
                 "components": result.get("components", []),
+                "language": language,
                 "source": "ai_analysis"
             })
         else:
             return jsonify({
                 "error": result.get("error"),
                 "response": result.get("error"),
-                "components": []
+                "components": [],
+                "language": language
             })
+    except BadRequest:
+        return jsonify({"error": "Invalid request format"}), 400
     except Exception as e:
+        print(f"Chat endpoint error: {str(e)}")
         return jsonify({
-            "error": f"Chat error: {str(e)}",
-            "components": []
+            "error": "Internal server error",
+            "components": [],
+            "language": language if 'language' in locals() else 'en'
         }), 500
 
-@app.route('/test-pdf', methods=['GET'])
-def test_pdf():
-    """Test PDF extraction."""
-    pdf_file = 'MonthlyAttendanceReport (1).pdf'
-    result = extract_pdf_content(pdf_file)
+@app.route('/test-database', methods=['GET'])
+def test_database():
+    """Test database extraction."""
+    result = extract_database_content()
     if result.get("success"):
         return jsonify({
-            'pdf_path': pdf_file,
-            'total_pages': result['total_pages'],
+            'database_path': DATABASE_PATH,
+            'total_tables': result['total_tables'],
             'extraction_successful': True,
-            'first_page_text_length': len(result['pages'][0]['text']) if result['pages'] else 0,
-            'first_100_chars': result['full_text'][:100]
+            'tables': list(result['tables'].keys()),
+            'first_100_chars': result['full_content'][:100]
         })
     else:
         return jsonify({
@@ -603,42 +843,27 @@ def test_pdf():
             'extraction_successful': False
         })
 
-@app.route('/pdf-info', methods=['GET'])
-def pdf_info():
-    """Get PDF file information."""
-    pdf_file = 'MonthlyAttendanceReport (1).pdf'
+@app.route('/database-info', methods=['GET'])
+def database_info():
+    """Get database file information."""
     
-    if os.path.exists(pdf_file):
-        file_size = os.path.getsize(pdf_file)
+    if os.path.exists(DATABASE_PATH):
+        file_size = os.path.getsize(DATABASE_PATH)
         return jsonify({
             'file_exists': True,
-            'file_size_mb': round(file_size / (1024 * 1024), 2)
+            'file_size_mb': round(file_size / (1024 * 1024), 2),
+            'database_path': DATABASE_PATH,
+            'initialized': DB_INITIALIZED,
+            'content_available': len(DB_CONTENT) > 0
         })
     else:
         return jsonify({
             'file_exists': False,
-            'error': 'PDF file not found'
+            'error': 'Database file not found',
+            'database_path': DATABASE_PATH,
+            'initialized': False,
+            'content_available': False
         })
-
-@app.route('/simple-test', methods=['POST'])
-def simple_test():
-    """Simple AI test without PDF."""
-    try:
-        data = request.get_json()
-        question = data.get('question', 'What is 2+2?')
-        
-        response = openai.ChatCompletion.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": question}],
-            max_tokens=100
-        )
-        
-        return jsonify({
-            'response': response.choices[0].message.content.strip(),
-            'success': True
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
 @app.route('/test-openai', methods=['POST'])
 def test_openai():
@@ -669,67 +894,125 @@ def test_openai():
         }), 500
 
 @app.route('/generate-sample-data', methods=['POST'])
+@limiter.limit("10 per minute")  # Rate limit sample data generation
 def generate_sample_data():
-    """Generate sample data for testing UI components."""
+    """Generate sample data with rate limiting."""
     try:
-        data = request.get_json()
+        data = request.get_json() or {}
         component_type = data.get('type', 'all')
+        language = data.get('language', 'en')
+        
+        # Validate inputs
+        if component_type not in ['all', 'table', 'chart', 'cards']:
+            component_type = 'all'
+        if language not in ['en', 'ar']:
+            language = 'en'
         
         components = []
         
         if component_type in ['all', 'table']:
-            components.append({
-                "type": "table",
-                "data": {
-                    "title": "Sample Data Table",
-                    "headers": ["Name", "Value", "Status"],
-                    "rows": [
-                        ["Total Users", "1,234", "Active"],
-                        ["New Signups", "56", "Growing"],
-                        ["Revenue", "$12,345", "Up 15%"],
-                        ["Support Tickets", "23", "Resolved"]
-                    ]
-                }
-            })
+            if language == 'ar':
+                components.append({
+                    "type": "table",
+                    "data": {
+                        "title": "جدول بيانات الحضور التجريبي",
+                        "headers": ["اسم الموظف", "القسم", "حالة الحضور", "الساعات"],
+                        "rows": [
+                            ["أحمد علي", "تقنية المعلومات", "حاضر", "8.5"],
+                            ["فاطمة محمد", "الموارد البشرية", "حاضر", "7.0"],
+                            ["خالد أحمد", "المالية", "غائب", "0.0"],
+                            ["سارة عبدالله", "التسويق", "حاضر", "8.0"]
+                        ]
+                    }
+                })
+            else:
+                components.append({
+                    "type": "table",
+                    "data": {
+                        "title": "Sample Attendance Data",
+                        "headers": ["Employee Name", "Department", "Status", "Hours"],
+                        "rows": [
+                            ["Ahmed Ali", "IT", "Present", "8.5"],
+                            ["Fatima Mohammed", "HR", "Present", "7.0"],
+                            ["Khalid Ahmed", "Finance", "Absent", "0.0"],
+                            ["Sarah Abdullah", "Marketing", "Present", "8.0"]
+                        ]
+                    }
+                })
         
         if component_type in ['all', 'chart']:
-            components.append({
-                "type": "chart",
-                "data": {
-                    "type": "pie",
-                    "title": "Sample Chart",
-                    "labels": ["Chrome", "Firefox", "Safari", "Edge"],
-                    "values": [65, 20, 10, 5]
-                }
-            })
+            if language == 'ar':
+                components.append({
+                    "type": "chart",
+                    "data": {
+                        "type": "pie",
+                        "title": "توزيع الحضور حسب القسم",
+                        "labels": ["تقنية المعلومات", "الموارد البشرية", "المالية", "التسويق"],
+                        "values": [85, 90, 75, 88]
+                    }
+                })
+            else:
+                components.append({
+                    "type": "chart",
+                    "data": {
+                        "type": "pie",
+                        "title": "Attendance Distribution by Department",
+                        "labels": ["IT", "HR", "Finance", "Marketing"],
+                        "values": [85, 90, 75, 88]
+                    }
+                })
         
         if component_type in ['all', 'cards']:
-            components.append({
-                "type": "cards",
-                "data": [
-                    {"title": "Total", "value": "1,234", "description": "Total count"},
-                    {"title": "Average", "value": "87.5", "description": "Average score"},
-                    {"title": "Growth", "value": "+15%", "description": "This month"}
-                ]
-            })
+            if language == 'ar':
+                components.append({
+                    "type": "cards",
+                    "data": [
+                        {"title": "إجمالي الموظفين", "value": "120", "description": "العدد الكلي للموظفين"},
+                        {"title": "معدل الحضور", "value": "84.5%", "description": "هذا الشهر"},
+                        {"title": "ساعات العمل", "value": "2,340", "description": "إجمالي الساعات"}
+                    ]
+                })
+            else:
+                components.append({
+                    "type": "cards",
+                    "data": [
+                        {"title": "Total Employees", "value": "120", "description": "Total workforce"},
+                        {"title": "Attendance Rate", "value": "84.5%", "description": "This month"},
+                        {"title": "Work Hours", "value": "2,340", "description": "Total hours"}
+                    ]
+                })
+        
+        text_message = "KOREV AI: Sample attendance data generated for testing:" if language == 'en' else "KOREV AI: تم إنشاء بيانات حضور تجريبية للاختبار:"
         
         return jsonify({
-            "text": "Sample components generated for testing:",
+            "text": text_message,
             "components": components
         })
         
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Sample data generation error: {str(e)}")
+        error_msg = "Error generating sample data" if language == 'en' else "خطأ في إنشاء البيانات التجريبية"
+        return jsonify({"error": error_msg}), 500
 
-@app.route('/analyze-document', methods=['POST'])
-def analyze_document():
-    """Analyze the attendance document."""
+@app.route('/analyze-database', methods=['POST'])
+@limiter.limit("5 per minute")  # Rate limit analysis endpoint
+def analyze_database():
+    """Analyze database with rate limiting."""
     try:
-        if not PDF_CONTENT:
-            return jsonify({"error": "No attendance data available"}), 400
+        data = request.get_json() or {}
+        language = data.get('language', 'en')
         
-        # Use chatbot function to analyze attendance document
-        result = chatbot_with_pdf("Provide a comprehensive analysis of this attendance report including key statistics, attendance rates, and important insights.")
+        if language not in ['en', 'ar']:
+            language = 'en'
+        
+        if not DB_CONTENT:
+            error_msg = "KOREV AI: No attendance database content available" if language == 'en' else "KOREV AI: لا يوجد محتوى قاعدة بيانات حضور متاح"
+            return jsonify({"error": error_msg}), 400
+        
+        # Use chatbot function to analyze database content
+        analysis_question = "Provide a comprehensive analysis of this attendance database including key statistics, attendance patterns, employee insights, and important findings." if language == 'en' else "قدم تحليلاً شاملاً لقاعدة بيانات الحضور هذه بما في ذلك الإحصائيات الرئيسية وأنماط الحضور ورؤى الموظفين والنتائج المهمة."
+        
+        result = chatbot_with_database(analysis_question, language)
         
         if result.get("success"):
             return jsonify({
@@ -740,36 +1023,51 @@ def analyze_document():
             return jsonify({"error": result.get("error")}), 500
             
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        print(f"Database analysis error: {str(e)}")
+        error_msg = "Error analyzing database" if language == 'en' else "خطأ في تحليل قاعدة البيانات"
+        return jsonify({"error": error_msg}), 500
 
-@app.route('/extract-text', methods=['GET'])
-def extract_text():
-    """Extract and return attendance data information."""
-    try:
-        if not PDF_CONTENT:
-            return jsonify({"error": "No attendance data available"}), 400
-        
-        # Split into chunks for analysis
-        chunks = PDF_CONTENT.split('\n')
-        meaningful_chunks = [chunk.strip() for chunk in chunks if chunk.strip() and len(chunk.strip()) > 10]
-        
-        return jsonify({
-            "text_length": len(PDF_CONTENT),
-            "total_chunks": len(meaningful_chunks),
-            "first_500_chars": PDF_CONTENT[:500] + "..." if len(PDF_CONTENT) > 500 else PDF_CONTENT,
-            "data_type": "attendance_report"
-        })
-        
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# Security headers
+@app.after_request
+def after_request(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdnjs.cloudflare.com; font-src 'self' https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data:; connect-src 'self';"
+    return response
 
-# Extract PDF content when app starts
-initialize_pdf()
+# Error handlers
+@app.errorhandler(404)
+def not_found_error(error):
+    return jsonify({'error': 'Not found'}), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    return jsonify({'error': 'Internal server error'}), 500
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    return jsonify({'error': 'Rate limit exceeded. Please try again later.'}), 429
+
+# Extract database content when app starts
+initialize_database()
 
 if __name__ == '__main__':
-    # Use environment variables for Flask configuration
+    # Production configuration
     debug_mode = os.getenv('FLASK_DEBUG', 'False').lower() == 'true'
     port = int(os.getenv('PORT', 5000))
-    host = os.getenv('HOST', '0.0.0.0')  # Changed to 0.0.0.0 for hosting compatibility
+    host = os.getenv('HOST', '127.0.0.1')  # Changed from 0.0.0.0 for security
+    
+    # Validate required environment variables
+    required_vars = ['OPENAI_API_KEY']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        print(f"ERROR: Missing required environment variables: {missing_vars}")
+        exit(1)
+    
+    if debug_mode:
+        print("WARNING: Running in debug mode. Not suitable for production!")
     
     app.run(debug=debug_mode, host=host, port=port)

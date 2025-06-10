@@ -1,95 +1,157 @@
-# Attendance AI Analyzer
+# KOREV AI - Attendance Management System
 
-An intelligent attendance data analysis tool that uses OpenAI's GPT-4 to analyze attendance reports and provide insights with interactive tables, charts, and visualizations.
+An intelligent attendance management system powered by AI that analyzes attendance data and provides insights through interactive dashboards, charts, and reports.
 
-## Features
+## 🚀 Features
 
-- 📊 Attendance report analysis and insights
-- 🤖 AI-powered question answering about attendance data
-- 📋 Dynamic table generation for employee data
-- 📈 Interactive charts for attendance visualization
-- 📱 Responsive web interface
-- 🔒 Secure API key management
+- 🤖 **AI-Powered Analysis**: Uses OpenAI GPT-4 for intelligent data analysis
+- 📊 **Interactive Dashboards**: Dynamic tables, charts, and metrics
+- 🌐 **Bilingual Support**: Full English and Arabic language support
+- 🔒 **Security First**: Rate limiting, input sanitization, and secure database access
+- 📱 **Responsive Design**: Desktop application-style interface
+- 📈 **Real-time Insights**: Instant attendance pattern analysis
 
-## Use Cases
+## 🛡️ Security Features
 
-- Analyze monthly/weekly attendance reports
-- Generate attendance summaries and insights
-- Identify attendance patterns and trends
-- Create visual reports for management
-- Answer specific questions about employee attendance
+- Rate limiting on all endpoints
+- Input sanitization and validation
+- SQL injection protection
+- Security headers implementation
+- Environment variable protection
+- Read-only database access
 
-## Quick Start
+## 🏗️ Architecture
 
-1. Clone the repository:
+- **Backend**: Flask with OpenAI API integration
+- **Frontend**: Vanilla JavaScript with Chart.js
+- **Database**: SQLite with secure access patterns
+- **Security**: Flask-Limiter, Bleach sanitization
+
+## 📋 Prerequisites
+
+- Python 3.8+
+- OpenAI API key
+- SQLite database
+
+## ⚡ Quick Start
+
+1. **Clone and Setup**
 ```bash
-git clone https://github.com/yourusername/edoc-ai-analyzer.git
-cd edoc-ai-analyzer
-```
-
-2. Create a virtual environment:
-```bash
+git clone <repository-url>
+cd KOREV
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
-```bash
+source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-4. Set up environment variables:
-   - Create a `.env` file in the project root
-   - Add your OpenAI API key:
+2. **Environment Configuration**
 ```bash
-OPENAI_API_KEY=your_openai_api_key_here
-PDF_FILE_PATH=MonthlyAttendanceReport (1).pdf
-FLASK_DEBUG=False
+cp .env.example .env
+# Edit .env with your OpenAI API key
 ```
 
-5. Place your PDF file in the project directory
-
-6. Start the application:
+3. **Run Application**
 ```bash
 python app.py
 ```
 
-7. Open your browser and navigate to `http://localhost:5000`
+4. **Access Dashboard**
+```
+http://localhost:5000
+```
 
-8. Use the chat interface to ask questions about your document:
-   - General questions: "What is this document about?"
-   - Request tables: "Show me the data in a table"
-   - Request charts: "Create a chart of the attendance data"
+## 🌍 Environment Variables
 
-## Sample Questions
+| Variable | Description | Required | Default |
+|----------|-------------|----------|---------|
+| `OPENAI_API_KEY` | OpenAI API key | ✅ | - |
+| `DATABASE_PATH` | SQLite database path | ❌ | `attendance.db` |
+| `FLASK_DEBUG` | Debug mode | ❌ | `False` |
+| `HOST` | Server host | ❌ | `127.0.0.1` |
+| `PORT` | Server port | ❌ | `5000` |
 
-- "What is the overall attendance rate?"
-- "Show me employee attendance in a table"
-- "Create a chart of attendance trends"
-- "Which employees have perfect attendance?"
-- "What are the main attendance insights?"
+## 🎯 Usage Examples
 
-## Environment Variables
+### English Queries
+- "Show me attendance summary in a table"
+- "Create a chart of department attendance"
+- "Give me key attendance metrics"
+- "Analyze attendance trends"
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | Your OpenAI API key | Required |
-| `PDF_FILE_PATH` | Path to attendance report | `MonthlyAttendanceReport (1).pdf` |
-| `FLASK_DEBUG` | Enable debug mode | `False` |
+### Arabic Queries  
+- "أظهر لي ملخص الحضور في جدول"
+- "أنشئ مخطط لحضور الأقسام"
+- "أعطني مؤشرات الحضور الرئيسية"
+- "حلل اتجاهات الحضور"
 
-## Security Notes
+## 🚀 Production Deployment
 
-- Never commit your `.env` file
-- Keep your OpenAI API key secure
-- The application only generates structured components when explicitly requested
+### Using Gunicorn
+```bash
+gunicorn -w 4 -b 0.0.0.0:5000 app:app
+```
 
-## Contributing
+### Using Docker
+```dockerfile
+FROM python:3.9-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+COPY . .
+EXPOSE 5000
+CMD ["gunicorn", "-w", "4", "-b", "0.0.0.0:5000", "app:app"]
+```
 
+### Security Checklist for Production
+- [ ] Set `FLASK_DEBUG=False`
+- [ ] Use strong `SECRET_KEY`
+- [ ] Configure HTTPS/SSL
+- [ ] Set up proper logging
+- [ ] Configure database backups
+- [ ] Monitor rate limits
+- [ ] Regular security updates
+
+## 🔧 API Endpoints
+
+| Endpoint | Method | Description | Rate Limit |
+|----------|--------|-------------|------------|
+| `/` | GET | Main dashboard | - |
+| `/chat` | POST | AI chat interface | 30/min |
+| `/analyze-database` | POST | Database analysis | 5/min |
+| `/generate-sample-data` | POST | Sample data | 10/min |
+| `/test-database` | GET | Database test | - |
+
+## 🛠️ Development
+
+### Project Structure
+```
+KOREV/
+├── app.py                 # Main Flask application
+├── templates/
+│   └── index.html        # Frontend interface
+├── requirements.txt      # Python dependencies
+├── .env.example         # Environment template
+├── .gitignore          # Git ignore rules
+└── README.md           # This file
+```
+
+### Contributing
 1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Submit a pull request
+2. Create feature branch (`git checkout -b feature/new-feature`)
+3. Commit changes (`git commit -am 'Add new feature'`)
+4. Push to branch (`git push origin feature/new-feature`)
+5. Create Pull Request
 
-## License
+## 📄 License
 
-This project is licensed under the MIT License.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## 🆘 Support
+
+For support, please contact the development team or create an issue in the repository.
+
+## 🔄 Version History
+
+- **v1.0.0** - Initial release with bilingual support
+- **v1.1.0** - Added security improvements and rate limiting
+- **v1.2.0** - Enhanced UI and production readiness
